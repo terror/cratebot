@@ -1,10 +1,10 @@
 use {
-  anyhow::bail,
+  anyhow::{anyhow, bail},
   chrono::Utc,
   crates_io_api::{AsyncClient, Crate, CratesQuery},
   dotenv::dotenv,
   egg_mode::{self, auth, tweet::DraftTweet, KeyPair, Response, Token},
-  rand::Rng,
+  rand::{seq::SliceRandom, Rng},
   serde::Deserialize,
   sqlite::{Connection, State, Value},
   std::{path::PathBuf, process, time::Duration},
@@ -47,9 +47,9 @@ impl Client {
     }
   }
 
-  async fn tweet(&self, random_crate: Crate) -> Result {
+  async fn tweet(&self, random_crate: Crate) -> Result<Crate> {
     log::info!("Publishing tweet for crate {:?}", random_crate);
-    Ok(())
+    Ok(random_crate)
   }
 }
 
@@ -145,7 +145,9 @@ impl Db {
   fn crates(&self) -> Result<Vec<String>> {
     log::info!("Fetching all crate names from db...");
 
-    let mut statement = self.conn.prepare(format!("SELECT * FROM crates"))?;
+    let mut statement = self
+      .conn
+      .prepare("SELECT * FROM crates WHERE visited = 0")?;
 
     let mut ret = Vec::new();
 
@@ -156,26 +158,32 @@ impl Db {
     Ok(ret)
   }
 
+  fn update(&self, name: &str) -> Result {
+    Ok(self.conn.execute(format!(
+      "UPDATE crates SET visited = 1 where name = '{name}'"
+    ))?)
+  }
+
   fn sync(&self, crates: Vec<Crate>) -> Result {
     log::info!("Syncing db...");
 
-    let crate_names = crates
+    let names = crates
       .iter()
       .map(|c| c.name.clone())
       .collect::<Vec<String>>();
 
     let mut query = String::new();
 
-    for crate_name in crate_names {
-      let mut statement = self
+    for name in names {
+      if let State::Done = self
         .conn
         .prepare("SELECT * FROM crates WHERE name = :name")?
-        .bind_by_name(":name", crate_name.as_str())?;
-
-      if let State::Done = statement.next()? {
+        .bind_by_name(":name", name.as_str())?
+        .next()?
+      {
         query.push_str(&format!(
           "INSERT INTO crates (name, visited, date) VALUES ('{}', {}, '{}');\n",
-          crate_name,
+          name,
           0,
           Utc::now().timestamp()
         ));
@@ -214,17 +222,27 @@ async fn run() -> Result {
       .await?,
   )?;
 
-  let client = Client::new(Config::from_env()?).await;
-
-  let crates = db.crates()?;
-
-  client
-    .tweet(
-      api
-        .get_crate(&crates[rand::thread_rng().gen_range(0..crates.len())])
-        .await?,
-    )
-    .await?;
+  db.update(
+    &Client::new(Config::from_env()?)
+      .await
+      .tweet(
+        api
+          .get_crate(
+            &db
+              .crates()?
+              .choose(&mut rand::thread_rng())
+              .ok_or_else(|| {
+                anyhow!(
+                  "Failed to choose a random crate from crates in the database"
+                )
+              })?
+              .to_string(),
+          )
+          .await?,
+      )
+      .await?
+      .name,
+  )?;
 
   Ok(())
 }
