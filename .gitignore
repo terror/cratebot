@@ -2,3 +2,4 @@
 /.env
 /notes
 /target
+/db.sqlite
