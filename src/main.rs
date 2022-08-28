@@ -2,6 +2,7 @@ use {
   anyhow::bail,
   chrono::Utc,
   crates_io_api::{AsyncClient, Crate, CratesQuery},
+  dotenv::dotenv,
   egg_mode::{self, auth, tweet::DraftTweet, KeyPair, Response, Token},
   rand::Rng,
   serde::Deserialize,
@@ -23,6 +24,7 @@ struct Config {
 
 impl Config {
   fn from_env() -> Result<Self> {
+    dotenv().ok();
     Ok(envy::from_env::<Self>()?)
   }
 }
@@ -172,7 +174,7 @@ impl Db {
 
       if let State::Done = statement.next()? {
         query.push_str(&format!(
-          "INSERT INTO crates (name, visited, date) VALUES ({}, {}, {})",
+          "INSERT INTO crates (name, visited, date) VALUES ('{}', {}, '{}');\n",
           crate_name,
           0,
           Utc::now().timestamp()
@@ -180,8 +182,12 @@ impl Db {
       }
     }
 
-    log::info!("Executing query {query}");
+    if query.is_empty() {
+      log::info!("Database up to date!");
+      return Ok(());
+    }
 
+    log::info!("Executing query {query}");
     self.conn.execute(query.clone())?;
 
     Ok(())
