@@ -1,15 +1,17 @@
 use {
   anyhow::bail,
+  chrono::Utc,
   crates_io_api::{AsyncClient, Crate, CratesQuery},
   egg_mode::{self, auth, tweet::DraftTweet, KeyPair, Response, Token},
   rand::Rng,
   serde::Deserialize,
-  sqlite::{Connection, State},
+  sqlite::{Connection, State, Value},
   std::{path::PathBuf, process, time::Duration},
 };
 
 const AGENT: &str = "cratebot";
 const DB_PATH: &str = "db.sqlite";
+const PAGE_SIZE: u64 = 100;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -70,9 +72,9 @@ impl Api {
     let mut crates = Vec::new();
 
     loop {
-      log::info!("Fetching crates from page {page}");
+      log::info!("Fetching crates from page {page}...");
 
-      let mut query = CratesQuery::builder().page_size(100).build();
+      let mut query = CratesQuery::builder().page_size(PAGE_SIZE).build();
 
       query.set_page(page);
 
@@ -82,7 +84,14 @@ impl Api {
         break;
       }
 
-      log::trace!("Fetched crates: {:?}", &response.crates);
+      log::trace!(
+        "Fetched crates: {:?}",
+        response
+          .crates
+          .iter()
+          .map(|c| c.name.clone())
+          .collect::<Vec<String>>()
+      );
 
       crates.extend(response.crates);
 
@@ -153,9 +162,27 @@ impl Db {
       .map(|c| c.name.clone())
       .collect::<Vec<String>>();
 
-    // Make sure its not in the database
-    // Do one big insert
-    // Use current timestamp for date field
+    let mut query = String::new();
+
+    for crate_name in crate_names {
+      let mut statement = self
+        .conn
+        .prepare("SELECT * FROM crates WHERE name = :name")?
+        .bind_by_name(":name", crate_name.as_str())?;
+
+      if let State::Done = statement.next()? {
+        query.push_str(&format!(
+          "INSERT INTO crates (name, visited, date) VALUES ({}, {}, {})",
+          crate_name,
+          0,
+          Utc::now().timestamp()
+        ));
+      }
+    }
+
+    log::info!("Executing query {query}");
+
+    self.conn.execute(query.clone())?;
 
     Ok(())
   }
@@ -173,7 +200,13 @@ async fn run() -> Result {
     &[("name", "TEXT"), ("visited", "INTEGER"), ("date", "TEXT")],
   )?;
 
-  db.sync(api.crates(Some(db.count("crates")?.try_into()?)).await?)?;
+  db.sync(
+    api
+      .crates(Some(
+        (db.count("crates")? / PAGE_SIZE as i64 + 1).try_into()?,
+      ))
+      .await?,
+  )?;
 
   let client = Client::new(Config::from_env()?).await;
 

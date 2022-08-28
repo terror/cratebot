@@ -140,6 +140,7 @@ name = "cratebot"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "crates_io_api",
  "egg-mode",
  "env_logger",
