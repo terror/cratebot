@@ -49,6 +49,20 @@ impl Client {
 
   async fn tweet(&self, random_crate: Crate) -> Result<Crate> {
     log::info!("Publishing tweet for crate {:?}", random_crate);
+
+    let Crate {
+      name, description, ..
+    } = random_crate.clone();
+
+    DraftTweet::new(format!(
+      "{}\n{}\n{}",
+      name,
+      description.unwrap_or("".into()),
+      format!("https://crates.io/crates/{}", name)
+    ))
+    .send(&self.token)
+    .await?;
+
     Ok(random_crate)
   }
 }
