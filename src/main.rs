@@ -1,7 +1,7 @@
 use {
   anyhow::{anyhow, bail},
   chrono::Utc,
-  crates_io_api::{AsyncClient, Crate, CratesQuery},
+  crates_io_api::{AsyncClient, Crate, CratesQuery, FullCrate},
   dotenv::dotenv,
   egg_mode::{self, auth, tweet::DraftTweet, KeyPair, Response, Token},
   rand::{seq::SliceRandom, Rng},
@@ -47,15 +47,23 @@ impl Client {
     }
   }
 
-  async fn tweet(&self, random_crate: Crate) -> Result<Crate> {
-    log::info!("Publishing tweet for crate {:?}", random_crate);
+  async fn tweet(&self, full_crate: FullCrate) -> Result<FullCrate> {
+    log::info!("Publishing tweet for crate {:?}", full_crate);
 
-    let Crate {
-      name, description, ..
-    } = random_crate.clone();
+    let FullCrate {
+      name,
+      description,
+      owners,
+      ..
+    } = full_crate.clone();
 
     DraftTweet::new(format!(
-      "{}\n{}\n{}",
+      "({}) / {}: {}\n{}",
+      owners
+        .into_iter()
+        .map(|user| user.login)
+        .collect::<Vec<String>>()
+        .join(", "),
       name,
       description.unwrap_or("".into()),
       format!("https://crates.io/crates/{}", name)
@@ -63,7 +71,7 @@ impl Client {
     .send(&self.token)
     .await?;
 
-    Ok(random_crate)
+    Ok(full_crate)
   }
 }
 
@@ -78,8 +86,8 @@ impl Api {
     })
   }
 
-  async fn get_crate(&self, crate_name: &str) -> Result<Crate> {
-    Ok(self.client.get_crate(crate_name).await?.crate_data)
+  async fn get_crate(&self, crate_name: &str) -> Result<FullCrate> {
+    Ok(self.client.full_crate(crate_name, false).await?)
   }
 
   async fn crates(&self, starting_page: Option<u64>) -> Result<Vec<Crate>> {
