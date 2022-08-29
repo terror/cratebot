@@ -265,11 +265,7 @@ async fn run() -> Result {
                 &db
                   .crates()?
                   .choose(&mut rand::thread_rng())
-                  .ok_or_else(|| {
-                    anyhow!(
-                  "Failed to choose a random crate from crates in the database"
-                )
-                  })?
+                  .ok_or_else(|| anyhow!("Failed to choose a random crate from crates in the database"))?
                   .to_string(),
               )
               .await?,
