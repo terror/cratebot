@@ -57,15 +57,21 @@ impl Client {
       ..
     } = full_crate.clone();
 
+    let description = if let Some(description) = description {
+      format!(": {}", description)
+    } else {
+      String::new()
+    };
+
     DraftTweet::new(format!(
-      "({}) / {}: {}\n{}",
+      "({}) / {}{}\n{}",
       owners
         .into_iter()
         .map(|user| user.login)
         .collect::<Vec<String>>()
         .join(", "),
       name,
-      description.unwrap_or("".into()),
+      description,
       format!("https://crates.io/crates/{}", name)
     ))
     .send(&self.token)
