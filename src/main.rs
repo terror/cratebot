@@ -7,7 +7,7 @@ use {
   rand::{seq::SliceRandom, Rng},
   serde::Deserialize,
   sqlite::{Connection, State, Value},
-  std::{path::PathBuf, process, time::Duration},
+  std::{path::PathBuf, process, time::Duration, time::Instant},
 };
 
 const AGENT: &str = "cratebot";
@@ -236,37 +236,45 @@ async fn run() -> Result {
     &[("name", "TEXT"), ("visited", "INTEGER"), ("date", "TEXT")],
   )?;
 
-  db.sync(
-    api
-      .crates(Some(
-        (db.count("crates")? / PAGE_SIZE as i64 + 1).try_into()?,
-      ))
-      .await?,
-  )?;
+  let mut instant = Instant::now();
 
-  db.update(
-    &Client::new(Config::from_env()?)
-      .await
-      .tweet(
+  loop {
+    if instant.elapsed() >= Duration::from_secs(60 * 60) {
+      log::info!("Time elapsed, sending tweet...");
+
+      db.sync(
         api
-          .get_crate(
-            &db
-              .crates()?
-              .choose(&mut rand::thread_rng())
-              .ok_or_else(|| {
-                anyhow!(
+          .crates(Some(
+            (db.count("crates")? / PAGE_SIZE as i64 + 1).try_into()?,
+          ))
+          .await?,
+      )?;
+
+      db.update(
+        &Client::new(Config::from_env()?)
+          .await
+          .tweet(
+            api
+              .get_crate(
+                &db
+                  .crates()?
+                  .choose(&mut rand::thread_rng())
+                  .ok_or_else(|| {
+                    anyhow!(
                   "Failed to choose a random crate from crates in the database"
                 )
-              })?
-              .to_string(),
+                  })?
+                  .to_string(),
+              )
+              .await?,
           )
-          .await?,
-      )
-      .await?
-      .name,
-  )?;
+          .await?
+          .name,
+      )?;
 
-  Ok(())
+      instant = Instant::now();
+    }
+  }
 }
 
 #[tokio::main]
