@@ -188,7 +188,8 @@ impl Db {
 
   fn update(&self, name: &str) -> Result {
     Ok(self.conn.execute(format!(
-      "UPDATE crates SET visited = 1 where name = '{name}'"
+      "UPDATE crates SET visited = 1, date = {} where name = '{name}'",
+      Utc::now().timestamp()
     ))?)
   }
 
