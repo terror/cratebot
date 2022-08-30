@@ -4,7 +4,7 @@ set -euxo pipefail
 
 touch ~/.hushlogin
 
-DOMAIN=$2
+DOMAIN=$1
 
 hostnamectl set-hostname $DOMAIN
 
