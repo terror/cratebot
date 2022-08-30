@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+BRANCH=$1
+DOMAIN=$2
+
+if [[ ! -d cratebot ]]; then
+  git clone https://github.com/terror/cratebot.git
+fi
+
+cd cratebot
+
+git fetch origin
+git checkout -B $BRANCH
+git reset --hard origin/$BRANCH
+
+./deploy/setup $DOMAIN

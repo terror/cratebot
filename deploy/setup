@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+touch ~/.hushlogin
+
+DOMAIN=$2
+
+hostnamectl set-hostname $DOMAIN
+
+apt-get install --yes \
+  acl \
+  clang \
+  libsqlite3-dev\
+  libssl-dev \
+  pkg-config \
+  vim
+
+if [[ ! -e ~/.cargo/env ]]; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+fi
+
+source ~/.cargo/env
+
+cargo build --release
+
+if [[ -f /usr/local/bin/cratebot ]]; then
+  mv /usr/local/bin/cratebot /usr/local/bin/cratebot.bak
+fi
+
+cp target/release/cratebot /usr/local/bin/cratebot
+
+id --user cratebot || useradd --system cratebot
+
+cp deploy/cratebot.service /etc/systemd/system/
+
+systemctl daemon-reload
+systemctl enable cratebot
+systemctl restart cratebot
