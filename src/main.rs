@@ -1,12 +1,12 @@
 use {
   anyhow::{anyhow, bail},
-  chrono::Utc,
+  chrono::{offset::TimeZone, DateTime, Utc},
   crates_io_api::{AsyncClient, Crate, CratesQuery, FullCrate},
   dotenv::dotenv,
-  egg_mode::{self, auth, tweet::DraftTweet, KeyPair, Response, Token},
-  rand::{seq::SliceRandom, Rng},
+  egg_mode::{tweet::DraftTweet, KeyPair, Token},
+  rand::seq::SliceRandom,
   serde::Deserialize,
-  sqlite::{Connection, State, Value},
+  sqlite::{Connection, State},
   std::{path::PathBuf, process, time::Duration, time::Instant},
 };
 
@@ -31,7 +31,7 @@ impl Config {
 
 #[derive(Debug)]
 pub struct Client {
-  token: egg_mode::Token,
+  token: Token,
 }
 
 impl Client {
@@ -179,7 +179,7 @@ impl Db {
 
     let mut ret = Vec::new();
 
-    if let State::Row = statement.next()? {
+    while let State::Row = statement.next()? {
       ret.push(statement.read::<String>(0)?);
     }
 
@@ -188,9 +188,45 @@ impl Db {
 
   fn update(&self, name: &str) -> Result {
     Ok(self.conn.execute(format!(
-      "UPDATE crates SET visited = 1, date = {} where name = '{name}'",
-      Utc::now().timestamp()
+      "UPDATE crates SET visited = 1, date = '{}' WHERE name = '{name}'",
+      Utc::now()
     ))?)
+  }
+
+  fn scan<T: TimeZone>(&self, date: DateTime<T>) -> Result {
+    log::info!(
+      "Scanning db for visited crates that have passed date {:?}",
+      date
+    );
+
+    let mut statement = self
+      .conn
+      .prepare("SELECT * FROM crates WHERE visited = 1")?;
+
+    while let State::Row = statement.next()? {
+      if statement
+        .read::<String>(2)?
+        .parse::<DateTime<Utc>>()?
+        .signed_duration_since(date.clone())
+        .num_days()
+        >= 30
+      {
+        let name = statement.read::<String>(0)?;
+
+        log::info!(
+          "Found visited crate {} that has surpassed {:?}",
+          name,
+          date
+        );
+
+        self.conn.execute(format!(
+          "UPDATE crates SET visited = 0, date = '{}' WHERE name = '{name}'",
+          Utc::now()
+        ))?;
+      }
+    }
+
+    Ok(())
   }
 
   fn sync(&self, crates: Vec<Crate>) -> Result {
@@ -214,7 +250,7 @@ impl Db {
           "INSERT INTO crates (name, visited, date) VALUES ('{}', {}, '{}');\n",
           name,
           0,
-          Utc::now().timestamp()
+          Utc::now()
         ));
       }
     }
@@ -274,6 +310,8 @@ async fn run() -> Result {
           .await?
           .name,
       )?;
+
+      db.scan::<Utc>(Utc::now())?;
 
       instant = Instant::now();
     }
